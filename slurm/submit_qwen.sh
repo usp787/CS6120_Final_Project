@@ -1,7 +1,7 @@
 #!/bin/bash
 # Queue Qwen 3.8 27B on one GPU (slurm/serve_qwen.slurm):
 #   bash slurm/submit_qwen.sh <a100|h200> [smoke|serve] [more sbatch options]
-#   smoke: partition gpu-short, 45 min: start, test, stop.     serve: partition gpu, 8 h: keep serving.
+#   smoke: partition gpu-short, 75 min: start, test, stop.     serve: partition gpu, 8 h: keep serving.
 # Env knobs pass through to the job, for example:  HOLD_MIN=5 bash slurm/submit_qwen.sh a100 smoke
 set -euo pipefail
 GPU=${1:-}; MODE=${2:-smoke}
@@ -11,7 +11,7 @@ case $GPU in
   *) echo "usage: bash slurm/submit_qwen.sh <a100|h200> [smoke|serve] [more sbatch options]" >&2; exit 2 ;;
 esac
 case $MODE in
-  smoke) PART=(--partition=gpu-short --time=00:45:00) ;;
+  smoke) PART=(--partition=gpu-short --time=01:15:00) ;;   # room for a cold start (up to 45 min) plus the tests
   serve) PART=(--partition=gpu --time=08:00:00) ;;
   *) echo "the mode is smoke or serve, not '$MODE'" >&2; exit 2 ;;
 esac

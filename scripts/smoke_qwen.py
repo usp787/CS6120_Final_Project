@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Smoke test for the Qwen 3.8 27B endpoint started by slurm/serve_qwen.slurm.
 
-Checks that the model is listed; that a grounded FAQ reply comes back with thinking off (time to first token, decode
-speed, whether it uses the FAQ); a burst of parallel requests (combined throughput); and that a request can still turn
-thinking on. Standard library only, so it runs from any Python 3.8+: on the GPU node, or on a laptop through an SSH
-tunnel. Exits 1 if any check fails.
+Checks that the model is listed; warms the server up with untimed requests (the first requests of a fresh server pay
+for one-time kernel compiles); then times a grounded FAQ reply with thinking off (time to first token, decode speed,
+whether it uses the FAQ) and a burst of parallel requests (combined throughput); and checks that a request can still
+turn thinking on. Standard library only, so it runs from any Python 3.8+: on the GPU node, or on a laptop through an
+SSH tunnel. Exits 1 if any check fails.
 
     python scripts/smoke_qwen.py --endpoint /scratch/$USER/cs6120/run/qwen_endpoint.env
     python scripts/smoke_qwen.py --base-url http://localhost:8000/v1 --api-key "$QWEN_API_KEY" --quick
@@ -123,6 +124,7 @@ def main() -> int:
     ap.add_argument("--model")
     ap.add_argument("--quick", action="store_true", help="only the model list and one grounded reply")
     ap.add_argument("--burst", type=int, default=8, help="parallel requests in the throughput check (default 8)")
+    ap.add_argument("--no-warmup", action="store_true", help="time a cold server: skip the untimed warm-up requests")
     ap.add_argument("--out", help="write the results here as JSON (the API key is left out)")
     ap.add_argument("--meta", action="append", default=[], metavar="KEY=VALUE", help="extra fields for --out")
     args = ap.parse_args()
@@ -134,6 +136,7 @@ def main() -> int:
         ap.error("give --endpoint or --base-url")
 
     checks, metrics, reply = [], {}, None
+    burst_queries = (BURST_QUERIES * (args.burst // len(BURST_QUERIES) + 1))[:args.burst]
 
     def check(name: str, fn) -> None:
         try:
@@ -147,6 +150,14 @@ def main() -> int:
         with call(base, key, "/models") as r:
             ids = [m["id"] for m in json.load(r)["data"]]
         return model in ids, f"served: {', '.join(ids)}"
+
+    def warm_up():
+        t0 = time.perf_counter()
+        chat(base, key, model, messages(QUERY), max_tokens=64)
+        with cf.ThreadPoolExecutor(max_workers=args.burst) as pool:
+            list(pool.map(lambda q: chat(base, key, model, messages(q), max_tokens=64), burst_queries))
+        metrics["warmup_s"] = time.perf_counter() - t0
+        return True, f"1 + {args.burst} untimed requests in {metrics['warmup_s']:.1f} s"
 
     def grounded():
         nonlocal reply
@@ -164,7 +175,7 @@ def main() -> int:
                     f"FAQ terms used: {', '.join(used) or 'none'}")
 
     def burst():
-        queries = (BURST_QUERIES * (args.burst // len(BURST_QUERIES) + 1))[:args.burst]
+        queries = burst_queries
         t0 = time.perf_counter()
         with cf.ThreadPoolExecutor(max_workers=args.burst) as pool:
             results = list(pool.map(lambda q: chat(base, key, model, messages(q), max_tokens=200), queries))
@@ -186,6 +197,8 @@ def main() -> int:
                     f"finish={r['finish']}, {r['completion_tokens']} tokens in {r['seconds']:.1f} s")
 
     check("model listed", models_listed)
+    if not args.no_warmup:
+        check("warm-up", warm_up)
     check("grounded reply, thinking off", grounded)
     if not args.quick:
         check(f"burst of {args.burst} parallel requests", burst)

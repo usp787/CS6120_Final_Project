@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name=qwen_server
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -13,9 +13,12 @@
 # by you); serve mode also points qwen_endpoint.env there. The file is removed when the job ends.
 # Queue it with slurm/submit_qwen.sh, which sets the partition, time and GPU:
 #   bash slurm/submit_qwen.sh a100 smoke     bash slurm/submit_qwen.sh h200 smoke     bash slurm/submit_qwen.sh a100 serve
-# Env knobs: HOLD_MIN (0), MAX_MODEL_LEN (16384), VLLM_ENV (Gemma4_kaggle_repo's vllm_host: vLLM 0.19.1)
+# Env knobs: HOLD_MIN (0), MAX_MODEL_LEN (16384), MTP (0 = off; n = draft n tokens with the model's own MTP layer),
+#   VLLM_ENV (Gemma4_kaggle_repo's vllm_host: vLLM 0.19.1)
+# 128G and 16 CPUs: startup peaks near 100 GB with the weights in page cache. On 2026-11-23, 64G on an A100 node
+# thrashed (3 CPU-minutes used in 30 min, still starting) while the same job ran on an H200 node.
 
-MODE=${MODE:-smoke}; HOLD_MIN=${HOLD_MIN:-0}
+MODE=${MODE:-smoke}; HOLD_MIN=${HOLD_MIN:-0}; MTP=${MTP:-0}
 ROOT=/scratch/$USER/cs6120
 MODEL=$ROOT/models/Qwen3.8-27B                         # a link to the checked copy (slurm/fetch_models.slurm)
 QWEN_REV=1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0
@@ -35,13 +38,14 @@ export VLLM_CACHE_ROOT=$ROOT/cache/vllm TRITON_CACHE_DIR=$ROOT/cache/triton     
 export XDG_CACHE_HOME=$ROOT/cache/xdg FLASHINFER_WORKSPACE_BASE=$ROOT/cache/flashinfer
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8} MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}   # unset, startup can stall
 export VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1 VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1
+export PYTHONUNBUFFERED=1                              # vLLM logs to stdout; unbuffered, its log file is live
 export no_proxy="127.0.0.1,localhost,$(hostname -s)${no_proxy:+,$no_proxy}"; export NO_PROXY=$no_proxy
 
 GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1) || true
 [ -n "$GPU_NAME" ] || { echo "FAIL: no GPU in this job; queue it with slurm/submit_qwen.sh"; exit 1; }
 GPU_MIB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
 DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
-echo "job=$JOB mode=$MODE node=$(hostname -s) gpu=$GPU_NAME ($GPU_MIB MiB) driver=$DRIVER vllm_env=$VLLM_ENV start=$(date -Is)"
+echo "job=$JOB mode=$MODE mtp=$MTP node=$(hostname -s) gpu=$GPU_NAME ($GPU_MIB MiB) driver=$DRIVER vllm_env=$VLLM_ENV start=$(date -Is)"
 [ "${GPU_MIB:-0}" -ge 79000 ] || { echo "FAIL: BF16 Qwen 3.8 27B needs an 80 GB+ GPU; this one has $GPU_MIB MiB"; exit 1; }
 [ "$(cat "$MODEL/.verified" 2>/dev/null || true)" = "$QWEN_REV" ] \
   || { echo "FAIL: $MODEL is missing or not the checked download; run slurm/fetch_models.slurm"; exit 1; }
@@ -58,16 +62,21 @@ ARGS=(--model "$MODEL" --served-model-name "$SERVED" --language-model-only
   --reasoning-parser qwen3 --default-chat-template-kwargs '{"enable_thinking": false}'
   --override-generation-config '{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0}'
   --no-enable-prefix-caching)
+if [ "$MTP" -gt 0 ]; then   # speculative decoding with the checkpoint's MTP layer (vLLM 0.19.1: qwen3_5_mtp)
+  ARGS+=(--speculative-config "{\"method\": \"mtp\", \"num_speculative_tokens\": $MTP}")
+fi
 "$PY" -m vllm.entrypoints.openai.api_server "${ARGS[@]}" > "$VLOG" 2>&1 &
 VLLM_PID=$!
 cleanup() { rm -f "$EP"; kill "$VLLM_PID" 2>/dev/null || true; sleep 5; kill -9 "$VLLM_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 trap 'exit 143' TERM INT                               # at the time limit, still run cleanup
 
+# A cold start (empty compile caches) took 13 min on an H200, mostly compiling the linear-attention kernels; later
+# starts reuse $ROOT/cache.
 T0=$(date +%s)
 until curl -sf --noproxy '*' "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; do
   kill -0 "$VLLM_PID" 2>/dev/null || { echo "FAIL: vLLM exited during startup; the end of $VLOG:"; tail -n 40 "$VLOG"; exit 1; }
-  [ $(( $(date +%s) - T0 )) -lt 1800 ] || { echo "FAIL: vLLM not healthy after 30 min; the end of $VLOG:"; tail -n 40 "$VLOG"; exit 1; }
+  [ $(( $(date +%s) - T0 )) -lt 2700 ] || { echo "FAIL: vLLM not healthy after 45 min; the end of $VLOG:"; tail -n 40 "$VLOG"; exit 1; }
   sleep 5
 done
 STARTUP=$(( $(date +%s) - T0 ))
@@ -78,7 +87,7 @@ echo "vLLM ready after $STARTUP s at http://$(hostname -s):$PORT/v1; KV cache ${
 nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader
 
 META=(--meta gpu="$GPU_NAME" --meta driver="$DRIVER" --meta node="$(hostname -s)" --meta job="$JOB"
-  --meta startup_s="$STARTUP" --meta kv_cache_tokens="${KV:-}" --meta vllm_env="$VLLM_ENV")
+  --meta startup_s="$STARTUP" --meta kv_cache_tokens="${KV:-}" --meta vllm_env="$VLLM_ENV" --meta mtp="$MTP")
 if [ "$MODE" = smoke ]; then
   RC=0
   "$PY" scripts/smoke_qwen.py --endpoint "$EP" "${META[@]}" --out "$RUN/smoke_$JOB.json" || RC=$?
