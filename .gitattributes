@@ -1,0 +1,4 @@
+# Scripts run on Explorer (Linux): keep LF even when edited on Windows; sbatch rejects DOS line breaks
+*.slurm text eol=lf
+*.sh    text eol=lf
+*.py    text eol=lf

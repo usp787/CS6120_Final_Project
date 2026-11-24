@@ -1,2 +1,5 @@
 # PDFs (e.g., the project proposal) stay local and out of the repo
 *.pdf
+
+# SLURM job logs written on Explorer
+logs/
