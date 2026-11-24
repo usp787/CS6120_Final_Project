@@ -1,5 +1,8 @@
 #!/bin/bash -l
 #SBATCH --job-name=qwen_server
+#SBATCH --partition=gpu-short
+#SBATCH --gres=gpu:h200:1
+#SBATCH --time=01:15:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --output=logs/%x_%j.out
@@ -11,8 +14,9 @@
 #   MODE=serve  start, run a one-request check, then serve until the job ends.
 # Each job writes its address and a fresh API key to /scratch/$USER/cs6120/run/qwen_endpoint_<job>.env (readable only
 # by you); serve mode also points qwen_endpoint.env there. The file is removed when the job ends.
-# Queue it with slurm/submit_qwen.sh, which sets the partition, time and GPU:
-#   bash slurm/submit_qwen.sh a100 smoke     bash slurm/submit_qwen.sh h200 smoke     bash slurm/submit_qwen.sh a100 serve
+# Plain `sbatch slurm/serve_qwen.slurm` runs a smoke test on an H200 in gpu-short. slurm/submit_qwen.sh switches the
+# GPU and the mode:
+#   bash slurm/submit_qwen.sh h200 smoke     bash slurm/submit_qwen.sh a100 smoke     bash slurm/submit_qwen.sh h200 serve
 # Env knobs: HOLD_MIN (0), MAX_MODEL_LEN (16384), MTP (0 = off; n = draft n tokens with the model's own MTP layer),
 #   VLLM_ENV (Gemma4_kaggle_repo's vllm_host: vLLM 0.19.1)
 # 128G and 16 CPUs: startup peaks near 100 GB with the weights in page cache. On 2026-11-23, 64G on an A100 node
