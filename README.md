@@ -82,13 +82,47 @@ flowchart LR
 
 ## Status (11/23)
 
+Setup on Explorer is done; the project work itself starts next.
+
 - [x] Project proposal
+- [x] Models and BANKING77 downloaded to Explorer
+- [x] Qwen 3.8 27B serving on Explorer: smoke tests pass on H200 and A100 80GB
+- [x] Python environment for retrieval and classification, checked on CPU and on an H200
 - [ ] FAQ knowledge base
-- [ ] TF-IDF + Logistic Regression baseline
+- [ ] TF-IDF + Logistic Regression baseline (an untuned sanity fit already reaches 0.857 test accuracy)
 - [ ] DistilBERT fine-tuning
 - [ ] Retrieval pipeline and baselines
-- [ ] Qwen 3.8 27B serving on Explorer (weights are already downloaded there)
 - [ ] End-to-end demo
+- [ ] Later, optional: faster Qwen replies with its multi-token prediction layer (`MTP=2`)
+
+## Running on Explorer
+
+Everything runs as SLURM jobs from the repo root on Explorer. Large files live in `/scratch/$USER/cs6120`.
+
+| Step | Command | Runs on | What it does |
+|---|---|---|---|
+| 1. Models and data | `mkdir -p logs && sbatch slurm/fetch_models.slurm` | CPU (`short`), ~11 min | Downloads Qwen3-Embedding-0.6B, bge-reranker-v2-m3, DistilBERT, MiniLM and BANKING77, checks every file, and links the Qwen 3.8 27B weights |
+| 2. Python env | `sbatch slurm/build_rag_env.slurm` | CPU (`short`), ~12 min | Builds the env from `requirements.txt`, runs `scripts/check_rag_env.py`, writes `requirements-lock.txt` |
+| 3. Qwen smoke test | `sbatch slurm/serve_qwen.slurm` | H200 (`gpu-short`) | Starts Qwen, runs `scripts/smoke_qwen.py`, stops |
+| 4. Qwen server | `bash slurm/submit_qwen.sh h200 serve` | H200 (`gpu-short`), 2 h | Serves an OpenAI-compatible API; the job log prints the SSH tunnel command |
+
+For an A100 80GB instead, use `bash slurm/submit_qwen.sh a100 smoke` or `a100 serve`.
+
+Things to know:
+
+- **Load the module before using the env:** `module load python/3.13.5`, then run `/scratch/$USER/cs6120/venvs/rag/bin/python`. The env's Python needs the module's `libpython`.
+- **torch stays at 2.10.0**, the last PyPI release built for CUDA 12.8. Explorer's GPU driver (570) can't run the CUDA 13 builds of 2.11 and later.
+- **The Qwen server reuses Jiarui's account:** its vLLM 0.19.1 environment and the Qwen weights already exist there. Another account would need its own copies (the weights are 55.6 GB).
+- **Thinking is off by default, and requests need an API key.** Each server job writes its address and a new key to `/scratch/$USER/cs6120/run/qwen_endpoint_<job>.env`, readable only by its owner.
+- **Startup takes about 5–15 minutes**, mostly reading the weights, so start a demo server early.
+- **Scratch is purged monthly** (the first Tuesday). Afterwards, rerun steps 1 and 2 (`REBUILD=1` if the env broke); the next Qwen start recompiles kernels for 5–8 minutes.
+
+Qwen 3.8 27B measured on 11/23 (BF16, vLLM 0.19.1, thinking off):
+
+| GPU | Time to first token | One reply | 8 requests at once |
+|---|---|---|---|
+| H200 | 0.51 s | 63 tokens/s | 285 tokens/s combined |
+| A100 80GB | 0.56 s | 28 tokens/s | 49 tokens/s combined (likely a busy node) |
 
 ## References
 

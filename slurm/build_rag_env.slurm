@@ -29,8 +29,11 @@ fi
 "$VENV/bin/python" -m pip install --quiet --upgrade pip
 "$VENV/bin/python" -m pip install --quiet -r requirements.txt
 "$VENV/bin/python" -m pip check
+# On 2026-11-23 one run on node c0593 passed every check, then crashed with a bus error as Python exited; 11 reruns
+# didn't repeat it. If that happens, rerun the job.
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 "$VENV/bin/python" scripts/check_rag_env.py --root "$ROOT"
 "$VENV/bin/python" -m pip freeze --exclude-editable > requirements-lock.txt
-echo "wrote requirements-lock.txt ($(wc -l < requirements-lock.txt) packages); env size $(du -sh "$VENV" | cut -f1)"
-echo "Jupyter on Open OnDemand, once:  $VENV/bin/python -m ipykernel install --user --name cs6120-rag"
+echo "wrote requirements-lock.txt ($(wc -l < requirements-lock.txt) packages)"
+echo "use it with:  module load python/3.13.5; $VENV/bin/python ...   (its Python needs the module's libpython)"
+echo "Jupyter on Open OnDemand, once:  module load python/3.13.5; $VENV/bin/python -m ipykernel install --user --name cs6120-rag"
 echo "done $(date -Is)"

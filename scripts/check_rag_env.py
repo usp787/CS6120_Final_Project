@@ -5,8 +5,9 @@ Each retriever (Qwen3-Embedding with FAISS, MiniLM, the bge reranker, BM25) must
 first for a declined-payment question; a quick TF-IDF + LR fit must beat chance by far; DistilBERT must take one
 training step. CPU by default (slurm/build_rag_env.slurm runs it that way); --device cuda checks a GPU node.
 
-    python scripts/check_rag_env.py
-    python scripts/check_rag_env.py --device cuda
+    module load python/3.13.5          # on Explorer: the env's Python needs the module's libpython
+    /scratch/$USER/cs6120/venvs/rag/bin/python scripts/check_rag_env.py
+    /scratch/$USER/cs6120/venvs/rag/bin/python scripts/check_rag_env.py --device cuda
 """
 from __future__ import annotations
 
