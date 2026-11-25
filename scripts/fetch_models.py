@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Download the project's models and the BANKING77 dataset, then check every file against the Hub's sizes.
+"""Download the project's models, then check every file against the Hub's sizes.
+
+BANKING77 is not downloaded here: it is small, so it is committed with the repo (data/banking77).
 
 Each repo is pinned to the revision it resolves to at download time. Files already present at the right size are
 not downloaded again, so a rerun (for example after a scratch purge) fetches only what is missing. Revisions and
@@ -28,7 +30,6 @@ ITEMS = [
      ["*.msgpack", "*.h5", "*.ot", "pytorch_model.bin"]),
     ("sentence-transformers/all-MiniLM-L6-v2", "model", "models/all-MiniLM-L6-v2",
      ["onnx/*", "openvino/*", "*.h5", "*.ot", "pytorch_model.bin"]),
-    ("PolyAI/banking77", "dataset", "data/banking77", []),
 ]
 
 

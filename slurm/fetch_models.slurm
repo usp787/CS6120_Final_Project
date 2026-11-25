@@ -7,9 +7,9 @@
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
-# CPU only. Downloads the project's small models and BANKING77 (about 4 GB) to scratch with scripts/fetch_models.py,
-# then links the Qwen 3.8 27B weights that Gemma4_kaggle_repo already downloaded and hash-checked (55.6 GB, so they
-# are not downloaded again). Safe to rerun: complete files are skipped. Nothing is uploaded.
+# CPU only. Downloads the project's small models (about 4 GB) to scratch with scripts/fetch_models.py, then links the
+# Qwen 3.8 27B weights that Gemma4_kaggle_repo already downloaded and hash-checked (55.6 GB, so they are not downloaded
+# again). BANKING77 comes with the repo (data/banking77). Safe to rerun: complete files are skipped. Nothing is uploaded.
 # From the repo root on Explorer:
 #   mkdir -p logs && sbatch slurm/fetch_models.slurm
 
@@ -41,5 +41,5 @@ if [ "$(cat "$QWEN_SRC/.verified" 2>/dev/null || true)" = "$QWEN_REV" ]; then
 else
   echo "WARN: $QWEN_SRC is missing or unverified; fetch Qwen3.8-27B before serving"
 fi
-du -shD "$ROOT"/models/* "$ROOT"/data/* 2>/dev/null || true
+du -shD "$ROOT"/models/* 2>/dev/null || true
 echo "done $(date -Is)"

@@ -24,6 +24,16 @@ Support teams answer the same kinds of questions over and over, so fast, accurat
 
 The intents cover common banking issues such as declined card payments, cash withdrawals, account transfers and card activation.
 
+BANKING77 is committed with the repo in [data/banking77/](data/banking77/), so every script and teammate uses the same copy:
+
+| File | Contents |
+|---|---|
+| `train.parquet`, `test.parquet` | Columns `text` and `label` (an intent id, 0–76) |
+| `labels.csv` | Intent id → name, for example `0,activate_my_card` |
+| `README.md` | The dataset card from Hugging Face |
+
+It is the Hugging Face version at revision `1846984`, and both files match Hugging Face's SHA-256 hashes. The data is © PolyAI under CC-BY-4.0; cite Casanueva et al. (2020) when you use it. Two intent names are spelled as in the original: `Refund_not_showing_up` and `reverted_card_payment?`.
+
 ## NLP tasks
 
 **1. Intent classification.** Classify each query into one of the 77 BANKING77 intents.
@@ -101,7 +111,7 @@ Everything runs as SLURM jobs from the repo root on Explorer. Large files live i
 
 | Step | Command | Runs on | What it does |
 |---|---|---|---|
-| 1. Models and data | `mkdir -p logs && sbatch slurm/fetch_models.slurm` | CPU (`short`), ~11 min | Downloads Qwen3-Embedding-0.6B, bge-reranker-v2-m3, DistilBERT, MiniLM and BANKING77, checks every file, and links the Qwen 3.8 27B weights |
+| 1. Models | `mkdir -p logs && sbatch slurm/fetch_models.slurm` | CPU (`short`), ~11 min | Downloads Qwen3-Embedding-0.6B, bge-reranker-v2-m3, DistilBERT and MiniLM, checks every file, and links the Qwen 3.8 27B weights (BANKING77 comes with the repo) |
 | 2. Python env | `sbatch slurm/build_rag_env.slurm` | CPU (`short`), ~12 min | Builds the env from `requirements.txt`, runs `scripts/check_rag_env.py`, writes `requirements-lock.txt` |
 | 3. Qwen smoke test | `sbatch slurm/serve_qwen.slurm` | H200 (`gpu-short`) | Starts Qwen, runs `scripts/smoke_qwen.py`, stops |
 | 4. Qwen server | `bash slurm/submit_qwen.sh h200 serve` | H200 (`gpu-short`), 2 h | Serves an OpenAI-compatible API; the job log prints the SSH tunnel command |

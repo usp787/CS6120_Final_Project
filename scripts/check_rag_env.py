@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the retrieval/classification env: packages, the BANKING77 files, and one small run of each local model.
+"""Check the retrieval/classification env: packages, the repo's BANKING77 copy, and one small run of each local model.
 
 Each retriever (Qwen3-Embedding with FAISS, MiniLM, the bge reranker, BM25) must rank a declined-payment FAQ entry
 first for a declined-payment question; a quick TF-IDF + LR fit must beat chance by far; DistilBERT must take one
@@ -33,10 +33,11 @@ DOCS = [  # the first entry should rank first
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--root", default=f"/scratch/{os.environ.get('USER', '')}/cs6120",
-                    help="folder with models/ and data/ from slurm/fetch_models.slurm")
+                    help="folder with models/ from slurm/fetch_models.slurm")
     ap.add_argument("--device", default="cpu", help="cpu (default) or cuda")
     args = ap.parse_args()
-    models, data = Path(args.root) / "models", Path(args.root) / "data" / "banking77" / "data"
+    models = Path(args.root) / "models"
+    data = Path(__file__).resolve().parents[1] / "data" / "banking77"  # committed with the repo
     dev = args.device
     results = []
 
@@ -70,18 +71,21 @@ def main() -> int:
 
     def banking77():
         import pandas as pd
-        train = pd.read_parquet(data / "train-00000-of-00001.parquet")
-        test = pd.read_parquet(data / "test-00000-of-00001.parquet")
-        ok = len(train) == 10003 and len(test) == 3080 and train["label"].nunique() == 77
-        return ok, f"train {len(train)}, test {len(test)}, {train['label'].nunique()} intents, columns {list(train)}"
+        train = pd.read_parquet(data / "train.parquet")
+        test = pd.read_parquet(data / "test.parquet")
+        names = pd.read_csv(data / "labels.csv")
+        ok = (len(train) == 10003 and len(test) == 3080 and train["label"].nunique() == 77
+              and list(names["label"]) == list(range(77)) and set(train["label"]) <= set(names["label"]))
+        return ok, (f"train {len(train)}, test {len(test)}, {train['label'].nunique()} intents, columns {list(train)}, "
+                    f"labels.csv: {len(names)} names (0 = {names['intent'][0]})")
 
     def tfidf_lr():
         import pandas as pd
         from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import accuracy_score, f1_score
-        train = pd.read_parquet(data / "train-00000-of-00001.parquet")
-        test = pd.read_parquet(data / "test-00000-of-00001.parquet")
+        train = pd.read_parquet(data / "train.parquet")
+        test = pd.read_parquet(data / "test.parquet")
         vec = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
         clf = LogisticRegression(max_iter=1000).fit(vec.fit_transform(train["text"]), train["label"])
         pred = clf.predict(vec.transform(test["text"]))

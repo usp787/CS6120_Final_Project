@@ -2,3 +2,6 @@
 *.slurm text eol=lf
 *.sh    text eol=lf
 *.py    text eol=lf
+
+# Dataset files: never touch their bytes (BANKING77's parquet files are checked against Hugging Face's sha256)
+*.parquet binary
